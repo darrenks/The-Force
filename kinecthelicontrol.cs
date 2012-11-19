@@ -24,6 +24,7 @@ namespace Microsoft.Samples.Kinect.SkeletonBasics
     using System.Threading;
     using System.IO.Ports;
     using System.IO;
+    using System.Diagnostics;
     public class ArduinoController
     {
         SerialPort currentPort;
@@ -137,7 +138,10 @@ namespace Microsoft.Samples.Kinect.SkeletonBasics
     public partial class MainWindow : Window
     {
         public ArduinoController arduino;
-
+        public bool mode; //on or off
+        public bool been_uncrossed;
+        public double uncross_time;
+        public Process music_process;
         /// <summary>
         /// Width of output drawing
         /// </summary>
@@ -209,6 +213,8 @@ namespace Microsoft.Samples.Kinect.SkeletonBasics
         public MainWindow()
         {
             arduino = new ArduinoController();
+            mode = false;
+            been_uncrossed = true;
             InitializeComponent();
         }
 
@@ -380,6 +386,12 @@ namespace Microsoft.Samples.Kinect.SkeletonBasics
                   new System.Windows.Point(10, 10));
         }
 
+        //return time in miliseconds
+        public static double now()
+        {
+            return DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+        }
+
         /// <summary>
         /// Draws a skeleton's bones and joints
         /// </summary>
@@ -391,13 +403,12 @@ namespace Microsoft.Samples.Kinect.SkeletonBasics
             Joint rightj = skeleton.Joints[JointType.HandRight];
             Joint bodyj = skeleton.Joints[JointType.ShoulderCenter];
 
-
             float avg_hand_y = (leftj.Position.Y + rightj.Position.Y) / 2;
             int throttle = (int) Math.Round((avg_hand_y + 0.1 - bodyj.Position.Y) / 0.35 * 63 + 63);
             throttle = Math.Min(127, throttle);
             throttle = Math.Max(0, throttle);
 
-            int rotation = (int) Math.Round((leftj.Position.Y-rightj.Position.Y)/0.6*63  +63);
+            int rotation = (int) Math.Round((leftj.Position.Z-rightj.Position.Z)/0.6*63  +63);
             rotation = Math.Min(127, rotation);
             rotation = Math.Max(0, rotation);
 
@@ -407,17 +418,42 @@ namespace Microsoft.Samples.Kinect.SkeletonBasics
             forward = Math.Min(127, forward);
             forward = Math.Max(0, forward);
 
-            int ret = arduino.Transmit(rotation, forward, throttle);
+            int ret=0;
 
+            bool arms_crossed = leftj.Position.X > rightj.Position.X;
+
+            if (!mode && throttle==127)
+            {
+                mode = true;
+                //music play from: http://www.daniweb.com/software-development/csharp/threads/382799/stop-music-in-c#
+                string filename = "C:\\Users\\darren\\Documents\\starwars.mp3";
+                var commandArgs = string.Format(@"/play /close ""{0}""", filename);
+                music_process = System.Diagnostics.Process.Start("Mplayer2.exe", commandArgs);
+            }
+            else if (mode && arms_crossed)
+            {
+                mode = false;
+                music_process.Kill();
+            }
+
+            if (mode)
+            {
+                ret = arduino.Transmit(rotation, forward, throttle);
+            }
+            else
+            {
+                ret = arduino.Transmit(63, 63, 0);
+            }
             
 //PVector jointPos = new PVector();
   //          context.getJointPositionSkeleton(userId, SimpleOpenNI.SKEL_HEAD, jointPos);
 
-            writeText(drawingContext, arduino.state+" "+ret.ToString()+
+            writeText(drawingContext, arduino.state + " " + ret.ToString() +
                  string.Format("\nleft: {0:f4}x, {1:f4}y, {2:f4}z", leftj.Position.X, leftj.Position.Y, leftj.Position.Z) +
                  string.Format("\nright: {0:f4}x, {1:f4}y, {2:f4}z", rightj.Position.X, rightj.Position.Y, rightj.Position.Z) +
                  string.Format("\nbody: {0:f4}x, {1:f4}y, {2:f4}z", bodyj.Position.X, bodyj.Position.Y, bodyj.Position.Z) +
-                 string.Format("\nrotation: {0:d}\nforward: {1:d}\nthrottle: {2:d}", rotation, forward, throttle));
+                 string.Format("\nrotation: {0:d}\nforward: {1:d}\nthrottle: {2:d}", rotation, forward, throttle) +
+                 string.Format("\nmode:{0} crossed:{1} been:{2}", mode, arms_crossed, been_uncrossed));
 
 
             // Render Torso
